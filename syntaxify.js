@@ -2,7 +2,7 @@
 // @name Syntaxify
 // @description Universal syntax highlighting
 // @namespace http://rob-bolton.co.uk
-// @version 1.2
+// @version 1.3
 // @include http*
 // @grant GM_addStyle
 // @grant GM_getResourceText
@@ -15,7 +15,22 @@ var tagsToSearch = ["pre", "code"];
 
 GM_addStyle(GM_getResourceText("highlightJsCss"));
 
-var menuCounter = 0;
+var codeBlocks = {};
+var itemCounter = 0;
+var selectedItem;
+
+function isCodeBlock(node) {
+    if(node) {
+        var tagname = node.tagName.toLowerCase();
+        for(var i=0; i<tagsToSearch.length; i++) {
+            if(tagname == tagsToSearch[i]) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
 
 function wrapSelection() {
     var selection = window.getSelection();
@@ -45,52 +60,79 @@ function CodeContainer() {
     return container;
 }
 
-function SyntaxifyMenu(node) {
-    var modified = false;
-    var originalNode;
-    var currentNode = node;
-    var menu;
-    
-    var nodeMenuId = node.getAttribute("contextmenu");
-    if(!nodeMenuId) {
-        menu = document.createElement("menu");
-        menu.setAttribute("type", "context");
-        menu.setAttribute("id", "SyntaxifyMenu" + menuCounter++);
-    } else {
-        menu = document.getElementById(nodeMenuId);
+function addBlock(node) {
+    if(!node.id) {
+        node.id = "SyntaxifyBlock" + itemCounter++;
     }
-    
-    var menuItem = document.createElement("menuitem");
-    menuItem.setAttribute("label", "Syntaxify - Highlight");
-    
-    var toggleHighlight = function() {
-        if(modified) {
-            var parent = currentNode.parentNode;
-            parent.insertBefore(originalNode, currentNode);
-            parent.removeChild(currentNode);
-            currentNode = originalNode;
-            menuItem.setAttribute("label", "Syntaxify - Highlight");
-            modified = false;
-        } else {
-            originalNode = currentNode.cloneNode(true);
-            hljs.highlightBlock(currentNode);
-            menuItem.setAttribute("label", "Syntaxify - UnHighlight");
-            modified = true;
-        }
+    codeBlocks[node.id] = {
+        "node": node,
+        "highlighted": false,
+        "originalNode": node.cloneNode()
     }
-    
-    
-    menuItem.addEventListener("click", toggleHighlight, false);
-    
-    menu.appendChild(menuItem);
-    return menu;
 }
 
-function addSyntaxMenuForNode(node) {
-    var menu = new SyntaxifyMenu(node);
-    document.body.appendChild(menu);
-    node.setAttribute("contextmenu", menu.getAttribute("id"));
-    return menu;
+function revert(nodeData) {
+    var parent = nodeData.node.parentNode;
+    parent.insertBefore(nodeData.originalNode, nodeData.node);
+    parent.removeChild(nodeData.node);
+    nodeData.node = nodeData.originalNode;
+    nodeData.highlighted = false;
+    nodeData.node.setAttribute("contextMenu", "SyntaxifyPreMenu");
+}
+
+function highlight() {
+    var node = selectedItem;
+    if(node) {
+        if(!codeBlocks[node.id]) {
+            addBlock(node);
+        }
+        var nodeData = codeBlocks[node.id];
+        if(nodeData.highlighted === false) {
+            nodeData.originalNode = node.cloneNode(true);
+            try {
+                if(nodeData.lang) {
+                    node.className = (node.className || "") + " lang-" + nodeData.lang;
+                }
+                hljs.highlightBlock(node);
+            } catch(e) {
+                console.err(e);
+                revert(nodeData);
+                alert(e);
+                return;
+            }
+            nodeData.highlighted = true;
+            node.setAttribute("contextMenu", "SyntaxifyPostMenu");
+        }
+    }
+}
+
+function highlightAs() {
+    var node = selectedItem;
+    if(node) {
+        if(!codeBlocks[node.id]) {
+                addBlock(node);
+        }
+        var lang = prompt("Language:");
+        if(lang) {
+            codeBlocks[node.id].lang = lang;
+            highlight();
+        } else {
+            codeBlocks[node.id].lang = null;
+        }
+    }
+}
+
+function unHighlight() {
+    var node = selectedItem;
+    if(node) {
+        if(!codeBlocks[node.id]) {
+            addBlock(node);
+        }
+        var nodeData = codeBlocks[node.id];
+        if(nodeData.highlighted === true) {
+            revert(nodeData);
+        }
+    }
 }
 
 var syntaxableElements = [];
@@ -103,7 +145,7 @@ for(var i=0; i<tagsToSearch.length; i++) {
 
 if(syntaxableElements) {
     for(var i=0; i<(syntaxableElements.length || 0); i++) {
-        addSyntaxMenuForNode(syntaxableElements[i]);
+        syntaxableElements[i].setAttribute("contextmenu", "SyntaxifyPreMenu");
     }
 }
 
@@ -125,3 +167,46 @@ wrapItem.addEventListener("click", wrapSelection, false);
 bodyMenu.appendChild(wrapItem);
 body.appendChild(bodyMenu);
 body.setAttribute("contextmenu", bodyMenu.getAttribute("id"));
+
+
+var syntaxPreMenu = document.createElement("menu");
+syntaxPreMenu.setAttribute("type", "context");
+syntaxPreMenu.setAttribute("id", "SyntaxifyPreMenu");
+
+var syntaxPreMenuHighlightItem = document.createElement("menuitem");
+syntaxPreMenuHighlightItem.setAttribute("label", "Syntaxify - Highlight");
+syntaxPreMenuHighlightItem.addEventListener("click", highlight, false);
+syntaxPreMenu.appendChild(syntaxPreMenuHighlightItem);
+
+var syntaxPreMenuHighlightAsItem = document.createElement("menuitem");
+syntaxPreMenuHighlightAsItem.setAttribute("label", "Syntaxify - Highlight as...");
+syntaxPreMenuHighlightAsItem.addEventListener("click", highlightAs, false);
+syntaxPreMenu.appendChild(syntaxPreMenuHighlightAsItem);
+
+body.appendChild(syntaxPreMenu);
+
+
+var syntaxPostMenu = document.createElement("menu");
+syntaxPostMenu.setAttribute("type", "context");
+syntaxPostMenu.setAttribute("id", "SyntaxifyPostMenu");
+
+var syntaxPostMenuUnHighlightItem = document.createElement("menuitem");
+syntaxPostMenuUnHighlightItem.setAttribute("label", "Syntaxify - UnHighlight");
+syntaxPostMenuUnHighlightItem.addEventListener("click", unHighlight, false);
+syntaxPostMenu.appendChild(syntaxPostMenuUnHighlightItem);
+
+body.appendChild(syntaxPostMenu);
+
+document.addEventListener("mousedown", function(event) {
+    if(event.button == 2) {
+        var node = event.target;
+        while(node.parentNode && !isCodeBlock(node)) {
+            node = node.parentNode;
+        }
+        if(isCodeBlock(node)) {
+            selectedItem = node;
+        } else {
+            selectedItem = null;
+        }
+    }
+});
