@@ -2,7 +2,7 @@
 // @name Syntaxify
 // @description Universal syntax highlighting
 // @namespace http://rob-bolton.co.uk
-// @version 1.3
+// @version 1.4
 // @include http*
 // @grant GM_addStyle
 // @grant GM_getResourceText
@@ -34,30 +34,27 @@ function isCodeBlock(node) {
 
 function wrapSelection() {
     var selection = window.getSelection();
-    if(selection.rangeCount && tagsToSearch.indexOf(selection.anchorNode.nodeName) == -1) {
-        range = selection.getRangeAt(0);
-        if(range) {
-            range.surroundContents(new CodeContainer());
+    if(selection.rangeCount > 0) {
+        var range = selection.getRangeAt(0);
+        var parent = range.startContainer.parentNode;
+        if(!isCodeBlock(parent)) {
+            var container = document.createElement("code");
+            var containerData = addBlock(container);
+            containerData.originalFragment = range.cloneContents();
+            container.setAttribute("contextmenu", "SyntaxifyPreUnwrapMenu");
+            range.surroundContents(container);
         }
     }
 }
 
-function CodeContainer() {
-    var container = document.createElement("code");
-    var menu = addSyntaxMenuForNode(container);
-    
-    var menuItem = document.createElement("menuitem");
-    menuItem.setAttribute("label", "Unwrap code");
-    menuItem.addEventListener("click", function(){
-        var parent = container.parentNode;
-        var newTextNode = document.createTextNode(container.textContent);
-        parent.insertBefore(newTextNode, container);
-        parent.removeChild(container);
-    });
-    
-    menu.appendChild(menuItem);
-    
-    return container;
+function unwrap() {
+    if(selectedItem) {
+        var node = selectedItem;
+        var nodeData = codeBlocks[node.id];
+        var parent = node.parentNode;
+        parent.insertBefore(nodeData.originalFragment, node);
+        parent.removeChild(node);
+    }
 }
 
 function addBlock(node) {
@@ -67,8 +64,10 @@ function addBlock(node) {
     codeBlocks[node.id] = {
         "node": node,
         "highlighted": false,
-        "originalNode": node.cloneNode()
+        "originalNode": node.cloneNode(true)
     }
+    
+    return codeBlocks[node.id];
 }
 
 function revert(nodeData) {
@@ -77,7 +76,11 @@ function revert(nodeData) {
     parent.removeChild(nodeData.node);
     nodeData.node = nodeData.originalNode;
     nodeData.highlighted = false;
-    nodeData.node.setAttribute("contextMenu", "SyntaxifyPreMenu");
+    if(nodeData.originalFragment) {
+        nodeData.node.setAttribute("contextMenu", "SyntaxifyPreUnwrapMenu");
+    } else {
+        nodeData.node.setAttribute("contextMenu", "SyntaxifyPreMenu");
+    }
 }
 
 function highlight() {
@@ -168,7 +171,7 @@ bodyMenu.appendChild(wrapItem);
 body.appendChild(bodyMenu);
 body.setAttribute("contextmenu", bodyMenu.getAttribute("id"));
 
-
+// Menu for un-highlighted code blocks
 var syntaxPreMenu = document.createElement("menu");
 syntaxPreMenu.setAttribute("type", "context");
 syntaxPreMenu.setAttribute("id", "SyntaxifyPreMenu");
@@ -184,6 +187,27 @@ syntaxPreMenuHighlightAsItem.addEventListener("click", highlightAs, false);
 syntaxPreMenu.appendChild(syntaxPreMenuHighlightAsItem);
 
 body.appendChild(syntaxPreMenu);
+
+
+// Menu for un-highlighted ad-hoc code blocks created via the context-menu's wrap entry
+var syntaxPreUnwrapMenu = syntaxPreMenu.cloneNode(false);
+syntaxPreUnwrapMenu.setAttribute("id", "SyntaxifyPreUnwrapMenu");
+
+var syntaxPreUnwrapMenuUnwrapItem = document.createElement("menuitem");
+syntaxPreUnwrapMenuUnwrapItem.setAttribute("label", "Syntaxify - Unwrap");
+syntaxPreUnwrapMenuUnwrapItem.addEventListener("click", unwrap, false);
+
+var syntaxPreUnwrapMenuHighlightItem = syntaxPreMenuHighlightItem.cloneNode(false);
+var syntaxPreUnwrapMenuHighlightAsItem = syntaxPreMenuHighlightAsItem.cloneNode(false);
+
+syntaxPreUnwrapMenuHighlightItem.addEventListener("click", highlight, false);
+syntaxPreUnwrapMenuHighlightAsItem.addEventListener("click", highlightAs, false);
+
+syntaxPreUnwrapMenu.appendChild(syntaxPreUnwrapMenuHighlightItem);
+syntaxPreUnwrapMenu.appendChild(syntaxPreUnwrapMenuHighlightAsItem);
+syntaxPreUnwrapMenu.appendChild(syntaxPreUnwrapMenuUnwrapItem);
+
+body.appendChild(syntaxPreUnwrapMenu);
 
 
 var syntaxPostMenu = document.createElement("menu");
